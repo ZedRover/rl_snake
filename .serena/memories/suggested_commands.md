@@ -1,0 +1,11 @@
+# Suggested Commands
+- Install deps (uses uv): `uv sync`
+- Human play in simulator: `uv run python main.py`
+- Watch trained model in simulator: `uv run python play.py --mode model --model models/<run_name>/best_model.zip --algo ppo`
+- Random agent sanity check: `uv run python play.py --mode random --episodes 3`
+- Train PPO (CPU default): `uv run python train.py --algo ppo --timesteps 1000000`
+- Train DQN: `uv run python train.py --algo dqn --timesteps 1000000`
+- Force GPU if available: `uv run python train.py --algo ppo --gpu`
+- Live control of real web game: `uv run python live_play.py --model models/<run_name>/best_model.zip --algo ppo --debug`
+- Monitor training logs: `uv run tensorboard --logdir logs`
+- Utility (Darwin): `ls`, `pwd`, `rg <pattern>`, `find . -name "*.py"`, `python --version`, `uv run <script>` (pyproject scripts: `train`, `play`).

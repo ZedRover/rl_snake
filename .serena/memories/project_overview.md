@@ -1,0 +1,12 @@
+# Project Overview
+- Purpose: Reinforcement learning Snake game with wraparound boundaries (no wall death; only self-collision ends episode). Train agents (PPO/DQN via Stable-Baselines3) and optionally deploy them to control real browser-based Snake via screen capture + keyboard simulation.
+- Tech stack: Python 3.12+, Gymnasium, Stable-Baselines3 (PPO/DQN), PyTorch, NumPy, PyGame (simulated game), TensorBoard, tqdm, rich, mss/pyautogui/OpenCV/Pillow for live-play capture/control.
+- Structure: 
+  - `snake_env.py`: custom Gymnasium env (20x20 grid obs; 4 discrete actions; rewards +10 food, -10 death, -0.01 step; 1-4 food items; toroidal board). Rendering with PyGame.
+  - `train.py`: CLI training script; hardware detection chooses CPU (default for MLP) or GPU/MPS; PPO uses SubprocVecEnv scaled to CPU cores; DQN single env.
+  - `play.py`: CLI for human play, watching trained model, or random agent in simulator.
+  - `live_play.py`: deploy trained model to real web game via screen capture + keypresses; region selector, color-based state extraction; debug overlay option.
+  - `main.py`: minimal entrypoint launching human play.
+  - Data dirs: `models/` for saved runs, `logs/` for TensorBoard.
+- Entry points: `uv run train ...` (or `uv run python train.py`), `uv run play ...` (or `uv run python play.py`), `uv run python main.py`, `uv run python live_play.py ...`. Project scripts also registered as `train` and `play` in pyproject.
+- Tests: none present as of onboarding.

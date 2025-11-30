@@ -61,9 +61,16 @@ class SnakeEnv(gym.Env):
         # Action space: 4 directions
         self.action_space = spaces.Discrete(4)
 
-        # Observation space: grid with 0=empty, 1=snake body, 2=snake head, 3=food
+        # Observation space (channel-first):
+        # 0: head mask, 1: body mask, 2: food mask,
+        # 3: direction d_row (0,0.5,1 mapped from -1/0/1),
+        # 4: direction d_col (0,0.5,1 mapped from -1/0/1),
+        # 5: hunger fraction (0-1)
         self.observation_space = spaces.Box(
-            low=0, high=3, shape=(grid_size, grid_size), dtype=np.uint8
+            low=0.0,
+            high=1.0,
+            shape=(6, grid_size, grid_size),
+            dtype=np.float32,
         )
 
         # Pygame setup
@@ -112,9 +119,13 @@ class SnakeEnv(gym.Env):
         self.steps += 1
         self.steps_since_food += 1
 
-        # Prevent 180-degree turns
+        reward = -0.01  # Small step penalty to encourage efficiency
+
+        # Prevent 180-degree turns (apply penalty if attempted)
         opposite_directions = {UP: DOWN, DOWN: UP, LEFT: RIGHT, RIGHT: LEFT}
-        if action != opposite_directions.get(self.direction):
+        if action == opposite_directions.get(self.direction):
+            reward -= 0.2  # discourage invalid reverse inputs
+        else:
             self.direction = action
 
         # Calculate new head position with wraparound
@@ -136,18 +147,19 @@ class SnakeEnv(gym.Env):
         self.snake.insert(0, new_head)
 
         # Check if food eaten
-        reward = -0.01  # Small step penalty to encourage efficiency
         if new_head in self.food_positions:
             self.food_positions.remove(new_head)
             self.score += 10
             self.steps_since_food = 0
-            reward = 10.0
+            reward += 10.0
             self._spawn_food()
         else:
             self.snake.pop()  # Remove tail if no food eaten
 
         # Check for timeout (snake wandering too long without eating)
         truncated = self.steps_since_food >= self.max_steps_without_food
+        if truncated:
+            reward -= 5.0  # explicit penalty for stalling
 
         observation = self._get_observation()
         info = {"score": self.score}
@@ -155,21 +167,32 @@ class SnakeEnv(gym.Env):
         return observation, reward, False, truncated, info
 
     def _get_observation(self) -> np.ndarray:
-        """Generate grid observation."""
-        grid = np.zeros((self.grid_size, self.grid_size), dtype=np.uint8)
+        """Generate channel-first observation with direction and hunger context."""
+        channels = np.zeros((6, self.grid_size, self.grid_size), dtype=np.float32)
 
-        # Mark snake body
+        # Mark snake body/head
         for i, (row, col) in enumerate(self.snake):
             if i == 0:
-                grid[row, col] = 2  # Head
+                channels[0, row, col] = 1.0  # Head mask
             else:
-                grid[row, col] = 1  # Body
+                channels[1, row, col] = 1.0  # Body mask
 
         # Mark food
         for row, col in self.food_positions:
-            grid[row, col] = 3
+            channels[2, row, col] = 1.0
 
-        return grid
+        # Direction (broadcast across grid)
+        d_row, d_col = DIRECTION_VECTORS[self.direction]
+        channels[3] = (d_row + 1.0) / 2.0  # map -1/0/1 -> 0/0.5/1
+        channels[4] = (d_col + 1.0) / 2.0  # map -1/0/1 -> 0/0.5/1
+
+        # Hunger fraction since last food (0-1)
+        hunger_frac = min(
+            1.0, self.steps_since_food / float(self.max_steps_without_food)
+        )
+        channels[5] = hunger_frac
+
+        return channels
 
     def _spawn_food(self, initial: bool = False) -> None:
         """Spawn food at random empty positions.
