@@ -11,3 +11,6 @@ wheels/
 logs/
 models/
 .gemini*
+.serena
+CLAUDE.md 
+
