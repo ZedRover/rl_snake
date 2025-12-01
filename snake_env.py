@@ -61,17 +61,9 @@ class SnakeEnv(gym.Env):
         # Action space: 4 directions
         self.action_space = spaces.Discrete(4)
 
-        # Observation space (channel-first):
-        # 0: head mask, 1: body mask, 2: food mask,
-        # 3: direction d_row (0,0.5,1 mapped from -1/0/1),
-        # 4: direction d_col (0,0.5,1 mapped from -1/0/1),
-        # 5: hunger fraction (0-1)
-        self.observation_space = spaces.Box(
-            low=0.0,
-            high=1.0,
-            shape=(6, grid_size, grid_size),
-            dtype=np.float32,
-        )
+        # Observation: 8-direction toroidal vision with distances to food and body.
+        # Values are normalized to [0,1]; missing food/body reported as 0.
+        self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(16,), dtype=np.float32)
 
         # Pygame setup
         self.window = None
@@ -167,32 +159,38 @@ class SnakeEnv(gym.Env):
         return observation, reward, False, truncated, info
 
     def _get_observation(self) -> np.ndarray:
-        """Generate channel-first observation with direction and hunger context."""
-        channels = np.zeros((6, self.grid_size, self.grid_size), dtype=np.float32)
+        """16-dim vision vector: for 8 directions, distances to (food, body) on torus."""
+        directions = [
+            (-1, 0), (-1, 1), (0, 1), (1, 1),
+            (1, 0), (1, -1), (0, -1), (-1, -1),
+        ]
+        head_row, head_col = self.snake[0]
+        max_steps = max(1, self.grid_size - 1)  # avoid zero for small grids
+        obs = []
+        body_positions = set(self.snake[1:])
 
-        # Mark snake body/head
-        for i, (row, col) in enumerate(self.snake):
-            if i == 0:
-                channels[0, row, col] = 1.0  # Head mask
-            else:
-                channels[1, row, col] = 1.0  # Body mask
+        for d_row, d_col in directions:
+            food_dist = None
+            body_dist = None
+            row, col = head_row, head_col
 
-        # Mark food
-        for row, col in self.food_positions:
-            channels[2, row, col] = 1.0
+            for steps in range(1, max_steps + 1):
+                row = (row + d_row) % self.grid_size
+                col = (col + d_col) % self.grid_size
 
-        # Direction (broadcast across grid)
-        d_row, d_col = DIRECTION_VECTORS[self.direction]
-        channels[3] = (d_row + 1.0) / 2.0  # map -1/0/1 -> 0/0.5/1
-        channels[4] = (d_col + 1.0) / 2.0  # map -1/0/1 -> 0/0.5/1
+                if food_dist is None and (row, col) in self.food_positions:
+                    food_dist = steps
+                if body_dist is None and (row, col) in body_positions:
+                    body_dist = steps
 
-        # Hunger fraction since last food (0-1)
-        hunger_frac = min(
-            1.0, self.steps_since_food / float(self.max_steps_without_food)
-        )
-        channels[5] = hunger_frac
+                if food_dist is not None and body_dist is not None:
+                    break
 
-        return channels
+            food_val = (food_dist / max_steps) if food_dist is not None else 0.0
+            body_val = (body_dist / max_steps) if body_dist is not None else 0.0
+            obs.extend([food_val, body_val])
+
+        return np.array(obs, dtype=np.float32)
 
     def _spawn_food(self, initial: bool = False) -> None:
         """Spawn food at random empty positions.

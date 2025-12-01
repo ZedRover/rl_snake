@@ -12,41 +12,9 @@ import torch.nn as nn
 from stable_baselines3 import DQN, PPO
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from snake_env import SnakeEnv
-
-
-class SnakeCNN(BaseFeaturesExtractor):
-    """Small CNN for 20x20 grid observations (channel-first)."""
-
-    def __init__(self, observation_space, features_dim: int = 256):
-        super().__init__(observation_space, features_dim)
-        n_input_channels = observation_space.shape[0]
-        self.cnn = nn.Sequential(
-            nn.Conv2d(n_input_channels, 32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Flatten(),
-        )
-
-        with torch.no_grad():
-            sample = torch.as_tensor(observation_space.sample()[None]).float()
-            n_flatten = self.cnn(sample).shape[1]
-
-        self.linear = nn.Sequential(
-            nn.Linear(n_flatten, features_dim),
-            nn.ReLU(),
-        )
-
-        self._features_dim = features_dim
-
-    def forward(self, observations):
-        return self.linear(self.cnn(observations))
 
 
 def detect_hardware(use_gpu: bool = False):
@@ -165,6 +133,10 @@ def main():
         help="Show GUI during evaluation (slower but visual)"
     )
     parser.add_argument(
+        "--n-eval-episodes", type=int, default=20,
+        help="Number of episodes per evaluation (default: 20)"
+    )
+    parser.add_argument(
         "--save-dir", type=str, default="models",
         help="Directory to save models (default: models)"
     )
@@ -227,29 +199,29 @@ def main():
         best_model_save_path=save_path,
         log_path=log_path,
         eval_freq=10_000 // n_envs if args.algo == "ppo" else 10_000,
+        n_eval_episodes=args.n_eval_episodes,
         deterministic=True,
         render=args.render,
     )
 
     # Create model with auto-detected settings
     policy_kwargs = {
-        "features_extractor_class": SnakeCNN,
-        "features_extractor_kwargs": {"features_dim": 256},
-        "normalize_images": False,
+        "net_arch": [128, 128],
+        "activation_fn": nn.ReLU,
     }
 
     if args.algo == "ppo":
         model = PPO(
-            "CnnPolicy",
+            "MlpPolicy",
             env,
             learning_rate=3e-4,
             n_steps=2048,
             batch_size=batch_size,
-            n_epochs=10,
+            n_epochs=4,
             gamma=0.99,
             gae_lambda=0.95,
             clip_range=0.2,
-            ent_coef=0.01,
+            ent_coef=0.005,
             verbose=1,
             tensorboard_log=log_path,
             device=device,
@@ -259,7 +231,7 @@ def main():
         # DQN buffer size scales with available memory
         buffer_size = 100_000 if device == "cpu" else 500_000
         model = DQN(
-            "CnnPolicy",
+            "MlpPolicy",
             env,
             learning_rate=1e-4,
             buffer_size=buffer_size,

@@ -25,13 +25,15 @@ def play_with_model(model_path: str, algo: str, episodes: int = 5):
 
     for episode in range(episodes):
         obs, info = env.reset()
+        env.render()  # Ensure window is initialized
         total_reward = 0
         done = False
         truncated = False
 
         while not done and not truncated:
             action, _ = model.predict(obs, deterministic=True)
-            obs, reward, done, truncated, info = env.step(action)
+            obs, reward, done, truncated, info = env.step(action.item())
+            env.render()
             total_reward += reward
 
             # Handle pygame events
